@@ -5,6 +5,14 @@ const Drink = preload("res://scripts/drink.gd")
 const Career = preload("res://scripts/career.gd")
 const Hud = preload("res://scripts/hud.gd")
 const PourEffect = preload("res://scripts/pour_effect.gd")
+const LiquidPhysics = preload("res://scripts/liquid_physics.gd")
+const Sound = preload("res://scripts/audio.gd")
+var sound
+var stock = {}
+var aim_offset = Vector2.ZERO
+var landing = {}
+var marker: MeshInstance3D
+var recipe_page = 0
 var world
 var drink = Drink.new()
 var career = Career.new()
@@ -35,6 +43,8 @@ func _ready() -> void:
 	world = World.new()
 	add_child(world)
 	world.build()
+	sound = Sound.new()
+	add_child(sound)
 	player = CharacterBody3D.new()
 	add_child(player)
 	var collision = CollisionShape3D.new()
@@ -56,11 +66,14 @@ func _ready() -> void:
 	held_root.position = Vector3(0.32,-0.39,-0.60)
 	stream = PourEffect.new()
 	add_child(stream)
+	marker = world.cylinder(self,Vector3.ZERO,0.032,0.002,Color("77d8b8"))
+	marker.visible = false
 	hud = Hud.new()
 	add_child(hud)
 	hud.action.connect(handle_action)
 	hud.pour_changed.connect(func(value): pouring = value and active())
 	var save_ok = career.load_game()
+	hud.backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
 	show_menu()
 	if not save_ok:
 		hud.hint_label.text = "Save unreadable. Starting a new career."
@@ -72,15 +85,23 @@ func show_menu() -> void:
 	career.state = "menu"
 	career.paused = false
 	reset_controls()
-	hud.show_dialog("Behind the Bar 3D", "A real 3D first-person bartending prototype.\n\nMove with the left pad. Drag the world to look. Aim the crosshair at an object, then Pick / use.\n\nCareer: %d XP • €%.2f tips\nThe Copper Fox: playable. More venues: future content." % [career.xp,career.tips], {"Learn the craft (untimed)":"practice","Start a 3-minute shift":"start"})
+	if sound != null: sound.flow(false)
+	hud.show_dialog("BEHIND THE BAR", "Clock in. Learn the craft. Earn your next bar.\n\nVenue: %s\nCareer: %d XP • €%.2f banked • %d shifts\n\nFour seats. Five cocktails. Your reputation." % [Career.VENUES[career.venue],career.xp,career.tips,career.shifts], {"Start shift":"start","Learn the craft (untimed)":"practice","Choose venue":"venues","Settings & help":"settings"})
 
 func start_game(practice: bool) -> void:
 	career.start(practice)
+	stock.clear()
+	for ingredient in World.COLORS: stock[ingredient] = 750.0
+	world.set_venue(career.venue)
 	drink.clear()
 	set_held("")
+	player.position = Vector3(0.4,0.1,1.05)
+	player.rotation.y = 0
+	camera.rotation.x = -0.4
+	aim_offset = Vector2.ZERO
 	state_seen = "playing"
 	hud.hide_dialog()
-	note("Aim at GIN and pick it up. Aim at GLASS, then hold POUR.",8.0)
+	note("Select a seat ticket. Pick a bottle, hold POUR and drag to guide it. Green marker = inside a container.",10.0)
 
 func reset_controls() -> void:
 	pouring = false
@@ -115,7 +136,7 @@ func set_held(item: String) -> void:
 				child.collision_layer = 0
 		if held == "glass" and drink.volume("glass") > 0.0:
 			var coupe = drink.glass_type == "coupe"
-			var height = drink.volume("glass")/350.0*(0.10 if coupe else 0.22)
+			var height = drink.volume("glass")/(150.0 if coupe else 350.0)*(0.10 if coupe else 0.22)
 			world.cylinder(held_root,Vector3(0,(0.145 if coupe else 0.025)+height/2.0,0),0.072,height,Color("dcb96f"))
 	if not held.is_empty():
 		world.box(held_root,Vector3(0.045,0.11,0.035),Vector3(0.085,0.08,0.11),Color("bd926e"))
@@ -132,7 +153,45 @@ func ray_target() -> String:
 	return str(hit.collider.get_meta("item", ""))
 
 func handle_action(command: String) -> void:
+	sound.play("tap")
+	if command.begins_with("seat_"):
+		if active(): career.select_customer(int(command.trim_prefix("seat_")))
+		return
+	if command.begins_with("venue_"):
+		var index = int(command.trim_prefix("venue_"))
+		if career.xp >= Career.UNLOCKS[index]:
+			career.venue = index
+			world.set_venue(index)
+			show_menu()
+		return
 	match command:
+		"venues":
+			var choices = {}
+			var body = "Higher venues bring faster customers and larger tips.\n"
+			for i in range(3):
+				body += "\n%s — %d XP" % [Career.VENUES[i],Career.UNLOCKS[i]]
+				if career.xp >= Career.UNLOCKS[i]: choices[Career.VENUES[i]] = "venue_%d" % i
+			choices["Back"] = "menu"
+			hud.show_dialog("YOUR CAREER",body,choices)
+		"settings": show_settings()
+		"sound":
+			sound.enabled = not sound.enabled
+			sound.apply_settings()
+			show_settings()
+		"music":
+			sound.music_enabled = not sound.music_enabled
+			sound.apply_settings()
+			show_settings()
+		"recipes":
+			if active():
+				career.paused = true
+				reset_controls()
+			show_recipe()
+		"recipe_next":
+			recipe_page = (recipe_page+1)%Drink.RECIPES.size()
+			show_recipe()
+		"break":
+			if active() and held == "glass": drop_glass()
 		"practice": start_game(true)
 		"start": start_game(false)
 		"menu": show_menu()
@@ -154,6 +213,7 @@ func handle_action(command: String) -> void:
 			if active(): set_held("")
 		"discard":
 			if active():
+				career.waste += drink.volume("glass") + drink.volume("shaker") + drink.volume("jigger")
 				drink.clear()
 				set_held("")
 				note("Fresh containers. Career and current order kept.")
@@ -166,15 +226,24 @@ func handle_action(command: String) -> void:
 			if active(): begin_mix()
 
 func use_target() -> void:
-	if target == "customer":
+	if target.begins_with("customer"):
+		var seat = int(target.trim_prefix("customer_")) if target != "customer" else 0
 		if held != "glass":
-			note("Pick up your glass, then aim at the customer to serve.")
+			career.select_customer(seat)
+			note("Seat %d selected. Pick up a finished glass and serve this customer." % [seat+1])
 		else:
-			career.serve(drink.quality(career.order))
-			set_held("")
+			var quality = drink.quality(career.customers[seat].recipe)
+			if career.serve_customer(seat,quality):
+				sound.play("serve")
+				note("Seat %d: %d/100 • €%.2f tip. Other customers are still waiting!" % [seat+1,quality,career.result.tip],6.0)
+				drink.clear()
+				set_held("")
+				career.save_game()
+			else: note("This customer is not waiting for a drink.")
 	elif target == "ice":
 		var container = held if held in ["glass","shaker"] else "glass"
 		drink.ice[container] = true
+		sound.play("ice")
 		note("Ice added to " + container)
 	elif target == "garnish":
 		drink.garnish = ["lime","orange","olive"][garnish_index % 3]
@@ -182,6 +251,7 @@ func use_target() -> void:
 		note("Garnish: " + drink.garnish + ". Use again to cycle.")
 	elif World.COLORS.has(target) or target in ["glass","jigger","shaker"]:
 		set_held(target)
+		sound.play("glass")
 	else:
 		note("Move closer and aim at a labelled object.")
 
@@ -224,12 +294,6 @@ func _process(delta: float) -> void:
 	elapsed += delta
 	if active():
 		target = ray_target()
-		if pouring:
-			if target in ["glass","jigger","shaker"] and World.COLORS.has(held):
-				drink.pour(held,20.0 * minf(delta,0.1),target)
-			elif held in ["jigger","shaker"] and target in ["glass","shaker"]:
-				drink.transfer(held,target)
-				pouring = false
 	career.tick(minf(delta,0.2))
 	if not career.paused and career.state != state_seen:
 		state_seen = career.state
@@ -244,21 +308,15 @@ func _process(delta: float) -> void:
 						body += "%s: %d\n" % [key,drink.breakdown(career.order)[key]]
 				hud.show_dialog("Order finished",body,{"Next customer":"next","Back to menu":"menu"})
 			else:
-				hud.show_dialog("Shift complete","Drinks served: %d\nTips: €%.2f\nCareer: %d XP\n\nNext venue qualification: 200 XP. Additional venues are future content." % [career.served,career.shift_tips,career.xp],{"Another shift":"start","Back to menu":"menu"})
+				hud.show_dialog("SHIFT COMPLETE","Served: %d • Walkouts: %d\nTips: €%.2f • Waste / breakages: €%.2f\nBanked this shift: €%.2f\nCareer: %d XP\n\nLounge unlocks at 120 XP • Terrace at 300 XP" % [career.served,career.lost,career.shift_tips,career.costs(),maxf(0,career.shift_tips-career.costs()),career.xp],{"Another shift":"start","Back to menu":"menu"})
 	world.update_drink(drink)
-	var pouring_now = active() and pouring and target in ["glass","jigger","shaker"] and World.COLORS.has(held)
-	held_root.rotation.z = lerp_angle(held_root.rotation.z, -1.65 if pouring_now else 0.0, minf(1.0,delta*12.0))
-	held_root.position.x = 0.32 + (sin(elapsed*28.0)*0.06 if mixing and mix_method == "shake" else 0.0)
-	var from = held_root.to_global(Vector3(0,0.457,0))
-	var to = from
-	if pouring_now:
-		to = world.interactables[target].global_position + Vector3(0,0.2,0)
-		if target == "glass":
-			to = world.liquid_mesh.global_position + Vector3(0,world.liquid_mesh.scale.y * 0.0025,0)
-	stream.update_flow(minf(delta,0.05), pouring_now, from, to, World.COLORS.get(held,Color("ecdca9")))
+	world.update_customers(career,elapsed)
+	update_pouring(minf(delta,0.05))
 	update_hud(delta)
 
 func update_hud(delta: float) -> void:
+	hud.title_label.text = "BEHIND THE BAR / " + Career.VENUES[career.venue].to_upper()
+	if not career.customers.is_empty(): hud.update_tickets(career.customers,career.selected)
 	var recipe = Drink.RECIPES[career.order % 5]
 	var order_text = recipe.name + "\n"
 	for ingredient in recipe.liquid:
@@ -269,9 +327,10 @@ func update_hud(delta: float) -> void:
 	hud.target_label.text = ("• " + target.to_upper()) if not target.is_empty() else ""
 	hud.readout.text = "Holding: %s\nGlass %d ml • Jigger %d ml • Shaker %d ml\n%s • %s • Spilled %d ml" % [held.capitalize() if held != "" else "nothing",drink.volume("glass"),drink.volume("jigger"),drink.volume("shaker"),drink.glass_type,drink.garnish,drink.spilled]
 	if mixing: hud.readout.text += "\n%s: %d%%" % [mix_method.capitalize(),mini(100,int(mix_progress*100))]
+	if stock.has(held): hud.readout.text += " • Bottle: %d ml" % stock[held]
 	toast_time = maxf(0.0,toast_time-delta)
 	if toast_time == 0.0:
-		hud.hint_label.text = "Aim at a bottle → pick up → aim at glass → hold POUR. Ice and garnish at the right end."
+		hud.hint_label.text = "Select a seat ticket • Green pour marker = container • Release POUR before moving away"
 
 func note(message: String, duration: float = 4.0) -> void:
 	hud.hint_label.text = message
@@ -281,7 +340,8 @@ func pause_game() -> void:
 	if not career.state in ["playing","feedback"] or career.paused: return
 	career.paused = true
 	reset_controls()
-	hud.show_dialog("On a break","Your shift and current drink are paused.",{"Resume":"resume","Back to menu":"menu"})
+	sound.flow(false)
+	hud.show_dialog("ON A BREAK","Shift, customers and current drink are paused.",{"Resume":"resume","Recipe book":"recipes","Settings":"settings","End shift / menu":"menu"})
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
@@ -303,6 +363,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		look_or_mix(event.relative,event.position)
 
 func look_or_mix(relative: Vector2, screen_position: Vector2) -> void:
+	if held == "glass" and relative.length() > 45 and drink.volume("glass") > 0:
+		var before = drink.spilled
+		drink.decant("glass","",minf(8.0,(relative.length()-45)*0.04))
+		career.waste += drink.spilled-before
+		note("Careful! Fast turns spill an open glass.",2.0)
+	if pouring:
+		aim_offset += relative * Vector2(0.0015,-0.0015)
+		aim_offset = aim_offset.clamp(Vector2(-0.7,-0.2),Vector2(0.7,0.5))
+		return
 	if mixing:
 		if mix_method == "shake":
 			if absf(relative.x) > 2.0:
@@ -330,3 +399,94 @@ func look_or_mix(relative: Vector2, screen_position: Vector2) -> void:
 		return
 	player.rotation.y -= relative.x*0.003
 	camera.rotation.x = clampf(camera.rotation.x-relative.y*0.003,-1.25,1.1)
+
+func show_settings() -> void:
+	var back = "resume" if career.paused else "menu"
+	hud.show_dialog("SETTINGS & CONTROLS", "Left pad: walk. Drag the world: look.\nHold POUR, then drag: move the bottle over a container.\nGreen marker catches liquid. Red marker spills it.\nPick up the glass and aim at the correct seated customer.\nDrop glass breaks it; waste and damage cost tips.",{"Sound: " + ("ON" if sound.enabled else "OFF"):"sound","Music: " + ("ON" if sound.music_enabled else "OFF"):"music","Back":back})
+
+func show_recipe() -> void:
+	var r = Drink.RECIPES[recipe_page]
+	var body = ""
+	for ingredient in r.liquid: body += "%s: %d ml\n" % [ingredient.capitalize(),r.liquid[ingredient]]
+	body += "\n%s glass • %s • ice\nGarnish: %s" % [r.glass,r.method,r.garnish]
+	hud.show_dialog(r.name,body,{"Next recipe":"recipe_next","Back to shift":"resume"})
+
+func update_pouring(delta: float) -> void:
+	var can_pour = World.COLORS.has(held) or held in ["jigger","shaker"]
+	var desired = active() and pouring and can_pour
+	var pose = Vector3(-0.39+aim_offset.x,0.45+aim_offset.y,-0.82) if desired else Vector3(0.32,-0.39,-0.60)
+	held_root.position = held_root.position.lerp(pose,minf(1,delta*10))
+	held_root.rotation.z = lerp_angle(held_root.rotation.z, -2.0 if desired else 0.0,minf(1,delta*10))
+	if mixing: held_root.position.x += sin(elapsed*28)*0.025
+	var from = held_root.to_global(Vector3(0,0.457 if World.COLORS.has(held) else 0.30,0))
+	var velocity = -player.global_basis.z * 0.25 + Vector3.DOWN * 0.2
+	var receivers = []
+	var exclusions: Array[RID] = [player.get_rid()]
+	for vessel in ["glass","jigger","shaker"]:
+		var node = world.interactables[vessel]
+		for child in node.get_children():
+			if child is StaticBody3D: exclusions.append(child.get_rid())
+		if vessel != held:
+			var height = 0.26 if vessel == "glass" else (0.137 if vessel == "jigger" else 0.36)
+			var radius = (0.108 if drink.glass_type == "coupe" else 0.079) if vessel == "glass" else (0.046 if vessel == "jigger" else 0.055)
+			receivers.append({"id":vessel,"center":node.global_position+Vector3(0,height,0),"radius":radius})
+	var collision = func(a,b):
+		var query = PhysicsRayQueryParameters3D.create(a,b)
+		query.exclude = exclusions
+		return get_world_3d().direct_space_state.intersect_ray(query)
+	landing = LiquidPhysics.trace(from,velocity,receivers,collision) if desired else {"container":"","position":from,"time":0.1}
+	var emitting = desired and held_root.rotation.z < -1.8
+	var before = drink.spilled
+	if emitting:
+		var amount = delta * 28.0
+		if stock.has(held):
+			amount = minf(amount,stock[held])
+			stock[held] -= amount
+			if landing.container == "": drink.spilled += amount
+			else: drink.pour(held,amount,landing.container)
+		else:
+			amount = minf(amount,drink.volume(held))
+			drink.decant(held,landing.container,amount)
+		emitting = amount > 0
+	career.waste += drink.spilled-before
+	marker.visible = desired
+	marker.global_position = landing.position + Vector3(0,0.003,0)
+	marker.material_override.albedo_color = Color("66e6b5") if landing.container != "" else Color("ef754c")
+	stream.flight_time = maxf(0.01,landing.time)
+	stream.launch_velocity = velocity
+	stream.update_flow(delta,emitting,from,landing.position,World.COLORS.get(held,Color("dec18b")))
+	sound.flow(emitting)
+
+func drop_glass() -> void:
+	career.waste += drink.volume("glass")
+	career.breakages += 1
+	drink.liquid.glass = {}
+	drink.ice.glass = false
+	drink.garnish = "none"
+	var body = RigidBody3D.new()
+	add_child(body)
+	body.add_to_group("loose_glass")
+	body.global_position = held_root.global_position
+	world.vessel(body,"glass",Vector3.ZERO)
+	var collision = CollisionShape3D.new()
+	var shape = CylinderShape3D.new()
+	shape.radius = 0.08
+	shape.height = 0.26
+	collision.shape = shape
+	body.add_child(collision)
+	body.linear_velocity = -camera.global_basis.z * 1.7
+	body.angular_velocity = Vector3(3,1,2)
+	body.contact_monitor = true
+	body.max_contacts_reported = 2
+	body.body_entered.connect(func(_other):
+		if not body.has_meta("broken"):
+			body.set_meta("broken",true)
+			sound.play("break")
+			world.shatter(body.global_position)
+			body.queue_free()
+	)
+	get_tree().create_timer(5).timeout.connect(func():
+		if is_instance_valid(body): body.queue_free()
+	)
+	set_held("")
+	note("Glass dropped. €2.50 damage plus wasted ingredients.")

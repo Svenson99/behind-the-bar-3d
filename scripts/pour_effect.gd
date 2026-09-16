@@ -12,6 +12,8 @@ var flowing := false
 var emission := 0.0
 var cursor := 0
 var last_origin := Vector3.ZERO
+var launch_velocity := Vector3.ZERO
+var flight_time := 0.0
 
 static func trajectory(origin: Vector3, velocity: Vector3, time: float) -> Vector3:
 	return origin + velocity * time + GRAVITY * time * time * 0.5
@@ -75,8 +77,8 @@ func update_flow(delta: float, enabled: bool, origin: Vector3, impact: Vector3, 
 	last_origin = origin
 	# Aim assistance stays consistent with the existing crosshair interaction.
 	# Solve launch velocity; every point then follows gravity rather than a line.
-	var flight := clampf(origin.distance_to(impact) / 2.8, 0.16, 0.65)
-	var velocity := (impact - origin - GRAVITY * flight * flight * 0.5) / flight
+	var flight := flight_time if flight_time > 0 else clampf(origin.distance_to(impact) / 2.8, 0.16, 0.65)
+	var velocity := launch_velocity if flight_time > 0 else (impact - origin - GRAVITY * flight * flight * 0.5) / flight
 	for i in range(SEGMENTS):
 		var t0 := flight * float(i) / SEGMENTS
 		var t1 := flight * float(i + 1) / SEGMENTS

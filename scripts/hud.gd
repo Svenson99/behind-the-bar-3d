@@ -13,6 +13,9 @@ var target_label: Label
 var hint_label: Label
 var readout: Label
 var move_finger = -1
+var tickets: Array[Button] = []
+var backdrop: ColorRect
+var title_label: Label
 
 func style(color: Color, border: Color = Color("718369")) -> StyleBoxFlat:
 	var s = StyleBoxFlat.new()
@@ -58,7 +61,7 @@ func _ready() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
-	text_at("BEHIND THE BAR  /  THE COPPER FOX",Vector2(26,12),Vector2(660,35),23)
+	title_label = text_at("BEHIND THE BAR",Vector2(26,12),Vector2(660,35),23)
 	order_label = text_at("",Vector2(26,62),Vector2(410,180),21)
 	stats_label = text_at("",Vector2(820,16),Vector2(300,36),21)
 	target_label = text_at("",Vector2(440,400),Vector2(400,38),22)
@@ -77,6 +80,12 @@ func _ready() -> void:
 	button("Glass type", "glass",Vector2(1040,533),Vector2(214,58))
 	button("Set down", "drop",Vector2(1040,601),Vector2(214,58))
 	button("Discard drink", "discard",Vector2(26,270),Vector2(175,50))
+	button("Drop glass", "break",Vector2(26,335),Vector2(175,50))
+	button("Recipes", "recipes",Vector2(26,400),Vector2(175,50))
+	for i in range(4):
+		var ticket = button("Seat %d" % [i+1], "seat_%d" % i, Vector2(435+i*151,110),Vector2(145,116))
+		ticket.add_theme_font_size_override("font_size",16)
+		tickets.append(ticket)
 	var pad = Panel.new()
 	pad.position = Vector2(36,460)
 	pad.size = Vector2(190,190)
@@ -105,9 +114,14 @@ func _ready() -> void:
 			movement = ((event.position-Vector2(95,95))/70.0).limit_length()
 	)
 	text_at("DRAG THE WORLD TO LOOK",Vector2(470,70),Vector2(440,30),15)
+	backdrop = ColorRect.new()
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.color = Color(0.015,0.02,0.025,0.82)
+	root.add_child(backdrop)
+	backdrop.hide()
 	modal = PanelContainer.new()
-	modal.position = Vector2(265,110)
-	modal.size = Vector2(750,500)
+	modal.position = Vector2(250,36)
+	modal.size = Vector2(780,648)
 	modal.add_theme_stylebox_override("panel",style(Color(0.045,0.12,0.09,0.98),Color("a58a52")))
 	root.add_child(modal)
 	modal.hide()
@@ -138,8 +152,17 @@ func show_dialog(title: String, body: String, choices: Dictionary) -> void:
 		b.pressed.connect(func(): action.emit(command))
 		column.add_child(b)
 	modal.show()
+	backdrop.show()
 	movement = Vector2.ZERO
 	move_finger = -1
 
 func hide_dialog() -> void:
 	modal.hide()
+	backdrop.hide()
+
+func update_tickets(customers: Array, selected: int) -> void:
+	for i in range(tickets.size()):
+		var p = customers[i]
+		var state_text = "%ds left" % int(p.patience) if p.state == "waiting" else p.state.capitalize()
+		tickets[i].text = "%s %d • %s\n%s\n%s" % ["▸" if selected == i else "",i+1,p.name,preload("res://scripts/drink.gd").RECIPES[p.recipe].name,state_text]
+		tickets[i].modulate = Color("ffac83") if p.state == "waiting" and p.patience < 25 else Color.WHITE

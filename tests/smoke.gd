@@ -26,7 +26,9 @@ func run() -> void:
 	scene.use_target()
 	await process_frame
 	assert(scene.career.result.quality == 100)
-	assert(scene.hud.modal.visible)
+	assert(not scene.hud.modal.visible, "Service continues after serving")
+	assert(scene.world.customers.size() == 4)
+	assert(scene.sound.effects.size() >= 5)
 	scene.start_game(false)
 	scene.pause_game()
 	assert(scene.career.paused)

@@ -14,6 +14,20 @@ var glass_type = "highball"
 var garnish = "none"
 var spilled = 0.0
 
+func decant(source: String, destination: String, amount: float) -> void:
+	if source == destination or not liquid.has(source) or amount <= 0: return
+	var total = volume(source)
+	if total <= 0: return
+	var ratio = minf(1.0, amount / total)
+	for ingredient in liquid[source].keys():
+		var moved = liquid[source][ingredient] * ratio
+		liquid[source][ingredient] -= moved
+		if liquid.has(destination): pour(ingredient, moved, destination)
+		else: spilled += moved
+	if liquid.has(destination):
+		ice[destination] = ice[destination] or ice[source]
+		method[destination] = method[source]
+
 func _init() -> void:
 	clear()
 
@@ -34,7 +48,7 @@ func volume(container: String) -> float:
 func pour(ingredient: String, amount: float, container: String) -> void:
 	if not is_finite(amount) or amount <= 0.0 or not liquid.has(container):
 		return
-	var capacity = 50.0 if container == "jigger" else 350.0
+	var capacity = 50.0 if container == "jigger" else (150.0 if container == "glass" and glass_type == "coupe" else 350.0)
 	var accepted = minf(amount, maxf(0.0, capacity - volume(container)))
 	liquid[container][ingredient] = float(liquid[container].get(ingredient, 0.0)) + accepted
 	spilled += amount - accepted

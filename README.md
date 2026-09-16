@@ -1,6 +1,6 @@
 # Behind the Bar 3D
 
-Native **Godot 4.4.1** first-person Android game prototype, not a web wrapper. Walk around a low-poly 3D pub, look through the bartender's eyes, pick up bottles, aim and pour measured quantities into a glass, jigger or shaker, then serve a customer. Five recipes, practice, timed shifts, quality scores, tips and local career saves.
+Native **Godot 4.4.1** first-person Android bartending game. Version 0.2.0 adds four simultaneous seated customers, continuous service, physically aimed pouring, stock and waste costs, dropped glass physics, sound, recipes and three unlockable venue settings.
 
 ## Build and install using only your phone
 
@@ -12,27 +12,32 @@ Native **Godot 4.4.1** first-person Android game prototype, not a web wrapper. W
 
 The workflow is manual only: pushing files does not start builds. It has a 20-minute limit, uses standard Ubuntu runners, and retains the APK for seven days. Public standard-runner usage is normally free; check your account allowance/budget before using it after making the repository private. No paid runner or service is configured.
 
-**Current status:** Source and cloud workflow supplied. No successful Godot runtime test, cloud build, APK installation or device performance test has yet been observed. The local authoring environment did not have Godot, and downloading it timed out. Do not mistake source upload for a completed APK.
+**Validation:** Previous APKs have built and run on Android. Version 0.2.0 is covered by headless scene, touch, customer and pouring integration tests. Its graphics, audio mix and performance still require device testing. See the latest Actions run for the actual APK build status.
 
-## Controls
+## Controls and service
 
-- Left pad: move. Drag the exposed 3D world to look around.
-- Centre crosshair: aim at a labelled object, then **Pick / use**.
-- Pick a bottle, aim at **GLASS**, **JIGGER** or **SHAKER**, then **hold POUR**. Releasing stops it. Flow is 20 ml/sec. Watch the displayed amounts.
-- The jigger holds 50 ml; excess spills. Pick the jigger up, aim at glass/shaker and press Pour to empty it.
-- Hold the shaker, aim at **ICE**, and Use to add ice to it. With a filled shaker held, tap **Shake / stir** then drag repeatedly over the world. Aim at the glass and Pour to strain into it.
-- To stir, set down your item, aim at the filled glass and tap **Shake / stir**, then draw three circles around the crosshair. Shaking requires repeated back-and-forth swipes; progress is shown on screen.
-- Aim at **ICE** and Use to add ice to the glass when not holding the shaker.
-- Aim at **GARNISH** and Use to cycle lime/orange/olive. **Glass type** switches between a highball and a stemmed coupe.
-- Pick up the finished **GLASS**, aim at **CUSTOMER**, and Use to serve.
-- **Set down** returns the held vessel to its station. **Discard drink** clears ingredients without resetting career progress.
-- Desktop development: WASD to move, left-drag world to look, E to use, Escape to pause.
+- Left pad: walk. Drag the world: look. Crosshair and **Pick / use** pick up bottles and tools.
+- Select a seat ticket to display that customer's recipe. Each of four seats has its own arrival, order, patience, drinking and departure state. Serving one customer does not stop the others.
+- Hold **POUR** to tilt the bottle. While holding, use another finger to drag the bottle over the container. Green landing marker means the stream crosses an opening; red means it misses. Move closer to the counter if needed. Release to stop.
+- Flow follows an initial velocity and gravity, tested against circular container openings and solid world geometry. There is no attraction to the selected glass. The stock decreases on missed pours too.
+- Bottles start each shift with 750 ml. Flow is 28 ml/s. Jigger: 50 ml; highball: 350 ml; coupe: 150 ml. Overflow spills. Decant the jigger or shaker gradually with the same pouring controls.
+- Add ice by aiming at **ICE** and using it. Hold a filled shaker, tap **Shake / stir**, and swipe back and forth. For stirring, aim at a filled glass and draw circles after tapping the mixing button.
+- **GARNISH** cycles lime/orange/olive. **Glass type** chooses highball/coupe. Pick up the completed glass and use the actual seated customer to serve. It is judged against that customer's order, even if a different ticket is selected.
+- **Set down** safely returns the item to its station. **Drop glass** releases a rigid body, breaks it on contact and costs €2.50 plus contents. **Discard drink** empties the containers and charges waste.
+- **Recipes** pauses the shift and opens the recipe book. Pause/settings include sound and music toggles, saved locally.
+- Desktop: WASD, left-drag, E, Escape.
 
-Practice is untimed and shows required quantities. Regular shifts last three minutes, with 90 seconds of patience per customer. The shift clock continues through order feedback until paused. Quality rewards ingredient identity/amounts, glass, use of ice, technique and garnish. XP and tips save locally after each order and shift. Pausing or backgrounding cancels active pours.
+## Career
 
-## Scope and limitations
+Shifts last three minutes. Waiting patrons leave after their patience runs out. Wrong ingredients, amounts, glass, garnish and technique reduce quality/tips. Waste costs €0.012/ml; damage costs €2.50/glass. Net positive tips are banked at shift end. Leaving a shift early forfeits that shift's tips. Career XP is saved after serving; practice never awards XP. Menu shows banked tips and completed shifts.
 
-One playable venue: **The Copper Fox**. Qualification for future venues at 200 XP is a career milestone, not an implemented second venue. The game uses original procedural low-poly geometry, not finished character animation or photorealistic assets. No full fluid simulation, temperature/dilution simulation, sound, haptics, ads, login or multiplayer. No network permission is requested. Android ARM64 only.
+The Copper Fox is available immediately. Velvet Lounge unlocks at 120 XP; Skyline Terrace at 300 XP. These use the same bar workstation with different decor, lighting, ambient colors and customer pace/tip rewards. Lounge has velvet dividers and a chandelier; terrace opens the ceiling and rear view to a skyline and balcony. Practice is untimed.
+
+## Visuals and simulation limits
+
+Original procedural geometry, wood-grain textures, polished glass/metal materials, shadows, architectural detail, seated characters and original synthesized audio are included without external assets. This is **not photorealistic character art**. Characters use simple procedural poses, not a motion-captured walk/sit rig. Venue workstations share their layout.
+
+Pouring uses ballistic collision/catch calculations and metered volume transfer, not a full fluid solver. Glass drops and fragments use Godot rigid-body physics. Temperature, dilution, wet surface cleanup, free placement of every object, crowd navigation and full character animation are not implemented. Sounds are synthesized, not recordings of a real bar. Android ARM64; offline; no ads, login or multiplayer.
 
 Every cloud run currently generates a fresh **temporary debug signing key**. A later build may require uninstalling the earlier app first, which deletes local progress. Stable signing for updates should be configured privately before regular distribution. No signing key or credentials are committed, and test builds are not Play Store releases.
 
@@ -44,6 +49,10 @@ Open `project.godot` in Godot 4.4.1 (standard, not .NET). Use the Compatibility 
 godot --headless --editor --path . --import
 godot --headless --path . --script tests/test_drink.gd
 godot --headless --path . --script tests/smoke.gd
+godot --headless --path . --script tests/touch_input.gd
+godot --headless --path . --script tests/pour_effect.gd
+godot --headless --path . --script tests/shift.gd
+godot --headless --path . --script tests/service_integration.gd
 ```
 
 The workflow runs these checks before exporting. Headless smoke tests do not establish real touch performance or visual quality; inspect an installed APK on an Android phone before calling the game tested.
