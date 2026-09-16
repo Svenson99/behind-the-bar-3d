@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+const TouchButton = preload("res://scripts/touch_button.gd")
+
 signal action(name: String)
 signal pour_changed(value: bool)
 var movement = Vector2.ZERO
@@ -39,7 +41,7 @@ func text_at(text: String, at: Vector2, size: Vector2, font_size: int = 20) -> L
 	return l
 
 func button(text: String, command: String, at: Vector2, size: Vector2) -> Button:
-	var b = Button.new()
+	var b = TouchButton.new()
 	b.text = text
 	b.position = at
 	b.size = size
@@ -129,7 +131,7 @@ func show_dialog(title: String, body: String, choices: Dictionary) -> void:
 	column.add_child(description)
 	for caption in choices:
 		var command = choices[caption]
-		var b = Button.new()
+		var b = TouchButton.new()
 		b.text = caption
 		b.custom_minimum_size.y = 58
 		b.add_theme_font_size_override("font_size",22)

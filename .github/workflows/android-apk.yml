@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for test_script in tests/test_drink.gd tests/smoke.gd; do
+          for test_script in tests/test_drink.gd tests/smoke.gd tests/touch_input.gd; do
             timeout 60 godot --headless --path . --script "$test_script" 2>&1 | tee "$RUNNER_TEMP/test.log"
             if grep -E 'SCRIPT ERROR|Parse Error|Assertion failed|Failed to load script' "$RUNNER_TEMP/test.log"; then exit 1; fi
             grep -q 'PASS:' "$RUNNER_TEMP/test.log"
