@@ -4,6 +4,7 @@ const World = preload("res://scripts/world.gd")
 const Drink = preload("res://scripts/drink.gd")
 const Career = preload("res://scripts/career.gd")
 const Hud = preload("res://scripts/hud.gd")
+const PourEffect = preload("res://scripts/pour_effect.gd")
 var world
 var drink = Drink.new()
 var career = Career.new()
@@ -23,7 +24,7 @@ var shake_distance = 0.0
 var shake_direction = 0.0
 var shake_reversals = 0
 var shake_segment = 0.0
-var stream: MeshInstance3D
+var stream: Node3D
 var state_seen = ""
 var look_finger = -1
 var garnish_index = 0
@@ -53,8 +54,8 @@ func _ready() -> void:
 	held_root = Node3D.new()
 	camera.add_child(held_root)
 	held_root.position = Vector3(0.32,-0.39,-0.60)
-	stream = world.cylinder(self,Vector3.ZERO,0.006,1.0,Color("ecdca9"))
-	stream.visible = false
+	stream = PourEffect.new()
+	add_child(stream)
 	hud = Hud.new()
 	add_child(hud)
 	hud.action.connect(handle_action)
@@ -248,14 +249,13 @@ func _process(delta: float) -> void:
 	var pouring_now = active() and pouring and target in ["glass","jigger","shaker"] and World.COLORS.has(held)
 	held_root.rotation.z = lerp_angle(held_root.rotation.z, -1.65 if pouring_now else 0.0, minf(1.0,delta*12.0))
 	held_root.position.x = 0.32 + (sin(elapsed*28.0)*0.06 if mixing and mix_method == "shake" else 0.0)
-	stream.visible = pouring_now
+	var from = held_root.to_global(Vector3(0,0.457,0))
+	var to = from
 	if pouring_now:
-		var from = held_root.to_global(Vector3(0,0.44,0))
-		var to = world.interactables[target].global_position + Vector3(0,0.2,0)
-		var offset = to-from
-		stream.global_position = (from+to)*0.5
-		stream.quaternion = Quaternion(Vector3.UP,offset.normalized())
-		stream.scale = Vector3(1,offset.length(),1)
+		to = world.interactables[target].global_position + Vector3(0,0.2,0)
+		if target == "glass":
+			to = world.liquid_mesh.global_position + Vector3(0,world.liquid_mesh.scale.y * 0.0025,0)
+	stream.update_flow(minf(delta,0.05), pouring_now, from, to, World.COLORS.get(held,Color("ecdca9")))
 	update_hud(delta)
 
 func update_hud(delta: float) -> void:
